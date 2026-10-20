@@ -1,0 +1,1188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sun Day</title>
+<meta name="description" content="Circadian sun markers and a full-day UV index curve for any city.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Sun Day">
+<meta name="theme-color" content="#F1F4F8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1220" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one narrow column for a phone — location bar, "now" readout, full-day UV chart, then the event timeline and settings. */
+:root {
+  --bg: #F1F4F8;
+  --surface: #FFFFFF;
+  --fg: #142033;
+  --muted: #586378;
+  --line: #DCE2EA;
+  --sun: #B96E00;
+  --uv: #5E3FC9;
+  --uv-fill: rgba(94, 63, 201, 0.16);
+  --night: rgba(20, 32, 51, 0.07);
+  --twilight: rgba(20, 32, 51, 0.035);
+  --chip: #E8ECF3;
+  --uv-low: #2F8F4E;
+  --uv-mod: #C29400;
+  --uv-high: #D9661A;
+  --uv-vhigh: #CC3434;
+  --uv-ext: #8A3FB0;
+  --f-display: "Sora", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --f-data: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D1220; --surface: #151C2D; --fg: #E6EAF2; --muted: #96A0B5; --line: #263049;
+    --sun: #F0A63A; --uv: #A68CFF; --uv-fill: rgba(166, 140, 255, 0.20);
+    --night: rgba(0, 0, 0, 0.30); --twilight: rgba(0, 0, 0, 0.14); --chip: #1E2740;
+    --uv-low: #4DBB6E; --uv-mod: #E2B52C; --uv-high: #F0843A; --uv-vhigh: #F06060; --uv-ext: #C07BE8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D1220; --surface: #151C2D; --fg: #E6EAF2; --muted: #96A0B5; --line: #263049;
+  --sun: #F0A63A; --uv: #A68CFF; --uv-fill: rgba(166, 140, 255, 0.20);
+  --night: rgba(0, 0, 0, 0.30); --twilight: rgba(0, 0, 0, 0.14); --chip: #1E2740;
+  --uv-low: #4DBB6E; --uv-mod: #E2B52C; --uv-high: #F0843A; --uv-vhigh: #F06060; --uv-ext: #C07BE8;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+[hidden] { display: none !important; }
+body {
+  margin: 0; -webkit-text-size-adjust: 100%;
+  background: var(--bg); color: var(--fg);
+  font-family: var(--f-body); font-size: 16px; line-height: 1.45;
+}
+.wrap {
+  max-width: 720px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 18px 40px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+button, input, select { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, li[role="option"]:focus-visible {
+  outline: 2px solid var(--uv); outline-offset: 2px;
+}
+
+/* Location + date bar */
+.bar { display: flex; flex-direction: column; gap: 10px; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.brand h1 { font-family: var(--f-display); font-weight: 700; font-size: 1.35rem; letter-spacing: -0.01em; margin: 0; }
+.brand .coords { font-family: var(--f-data); font-size: 0.75rem; color: var(--muted); text-align: right; min-width: 0; }
+.picker { position: relative; }
+.picker input {
+  width: 100%; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--surface);
+  font-size: 1.05rem; font-weight: 600;
+}
+.picker input::placeholder { color: var(--muted); font-weight: 400; }
+.results {
+  position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 6px);
+  margin: 0; padding: 6px; list-style: none;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  max-height: 320px; overflow-y: auto;
+  box-shadow: 0 12px 30px rgba(10, 20, 40, 0.18);
+}
+.results li {
+  padding: 9px 10px; border-radius: 8px; cursor: pointer;
+  display: flex; justify-content: space-between; gap: 10px;
+}
+.results li span:last-child { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+.results li[aria-selected="true"], .results li:hover { background: var(--chip); }
+.results .empty { color: var(--muted); cursor: default; }
+.datebar { display: flex; align-items: center; gap: 8px; }
+.datebar .day { flex: 1; text-align: center; font-weight: 600; min-width: 0; }
+.datebar .day small { display: block; color: var(--muted); font-weight: 400; font-size: 0.8rem; }
+.icon-btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 10px;
+  width: 42px; height: 42px; cursor: pointer; font-size: 1.1rem; line-height: 1;
+}
+.today-btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 10px;
+  height: 42px; padding: 0 12px; cursor: pointer; font-weight: 600; font-size: 0.9rem;
+}
+.today-btn[hidden] { display: none !important; }
+
+/* Now readout */
+.now {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  background: var(--line); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+}
+.now > div { background: var(--surface); padding: 14px 16px; min-width: 0; }
+.label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.big { font-family: var(--f-display); font-weight: 600; font-size: 2rem; line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.big .unit { font-size: 1rem; color: var(--muted); font-weight: 500; margin-left: 2px; }
+.sub { color: var(--muted); font-size: 0.88rem; margin-top: 2px; }
+.risk { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle; color: #fff; }
+.now .next { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.next strong { font-family: var(--f-display); font-weight: 600; font-size: 1.1rem; }
+.next .when { font-family: var(--f-data); font-size: 0.95rem; }
+
+/* Chart */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 14px 10px; }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.card-head h2 { font-family: var(--f-display); font-size: 1rem; font-weight: 600; margin: 0; }
+.readout { font-family: var(--f-data); font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.readout b { color: var(--fg); font-weight: 600; }
+.chart { width: 100%; height: auto; display: block; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.chart text { font-family: var(--f-data); font-size: 10px; fill: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.stats div { background: var(--chip); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.stats b { display: block; font-family: var(--f-data); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.stats span { font-size: 0.72rem; color: var(--muted); }
+
+/* Timeline */
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline li {
+  display: grid; grid-template-columns: 58px 12px 1fr auto; gap: 0 12px; align-items: start;
+  padding: 10px 0; border-top: 1px solid var(--line);
+}
+.timeline li:first-child { border-top: 0; }
+.timeline .t { font-family: var(--f-data); font-weight: 600; font-variant-numeric: tabular-nums; padding-top: 1px; }
+.timeline .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; background: var(--muted); }
+.timeline .ev { min-width: 0; }
+.timeline .ev b { font-weight: 600; }
+.timeline .ev p { margin: 1px 0 0; color: var(--muted); font-size: 0.86rem; }
+.timeline .ang { font-family: var(--f-data); font-size: 0.78rem; color: var(--muted); padding-top: 3px; white-space: nowrap; }
+.timeline li.past { opacity: 0.55; }
+.timeline li.next-up .t { color: var(--uv); }
+.timeline li.missing .t { color: var(--muted); font-weight: 400; }
+.timeline .dot.sun { background: var(--sun); }
+.timeline .dot.uva { background: var(--uv); opacity: 0.55; }
+.timeline .dot.uvb { background: var(--uv); }
+.timeline .dot.dark { background: transparent; border: 2px solid var(--muted); }
+
+/* Settings */
+details.card { padding: 0; }
+details.card > summary {
+  list-style: none; cursor: pointer; padding: 14px 16px;
+  font-family: var(--f-display); font-weight: 600; font-size: 1rem;
+  display: flex; justify-content: space-between; align-items: center;
+}
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary::after { content: "+"; font-family: var(--f-data); color: var(--muted); font-size: 1.2rem; }
+details.card[open] > summary::after { content: "−"; }
+.settings { padding: 0 16px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field.full { grid-column: 1 / -1; }
+.field label { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.field input, .field select {
+  padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); width: 100%;
+}
+.field small { color: var(--muted); font-size: 0.78rem; }
+.primary {
+  grid-column: 1 / -1; padding: 11px; border-radius: 10px; border: 0; cursor: pointer;
+  background: var(--uv); color: var(--surface); font-weight: 600;
+}
+.msg { grid-column: 1 / -1; color: var(--uv-vhigh); font-size: 0.85rem; min-height: 1em; margin: 0; }
+.note { color: var(--muted); font-size: 0.85rem; max-width: 65ch; margin: 0; }
+.sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.src { font-size: 0.78rem; padding: 3px 9px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+.src b { color: var(--fg); font-weight: 600; }
+.src.live::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--uv-low); margin-right: 6px; vertical-align: 1px; }
+.src.warn::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--uv-mod); margin-right: 6px; vertical-align: 1px; }
+.results li.loading { color: var(--muted); cursor: default; font-size: 0.85rem; }
+
+@media (max-width: 460px) {
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .big { font-size: 1.7rem; }
+  .timeline li { grid-template-columns: 52px 10px 1fr auto; gap: 0 10px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .results li, .icon-btn, .today-btn { transition: background-color 120ms ease; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <div class="brand">
+      <h1>Sun Day</h1>
+      <div class="coords" id="coords"></div>
+    </div>
+    <div class="picker">
+      <input id="city-search" type="text" autocomplete="off" spellcheck="false"
+        role="combobox" aria-expanded="false" aria-controls="city-results" aria-autocomplete="list"
+        placeholder="Search a city">
+      <ul class="results" id="city-results" role="listbox" hidden></ul>
+    </div>
+    <div class="datebar">
+      <button class="icon-btn" id="prev-day" aria-label="Previous day">‹</button>
+      <div class="day" id="day-label"></div>
+      <button class="icon-btn" id="next-day" aria-label="Next day">›</button>
+      <button class="today-btn" id="go-today" hidden>Today</button>
+    </div>
+  </header>
+
+  <section class="now" id="now" aria-live="polite"></section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>UV index through the day</h2>
+      <div class="readout" id="readout"></div>
+    </div>
+    <svg class="chart" id="chart" viewBox="0 0 640 270" role="img" aria-label="UV index and sun elevation over the day"></svg>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--uv)"></i>UV index</span>
+      <span><i class="sw" style="background:var(--sun)"></i>Sun elevation (right scale)</span>
+      <span><i class="sw" style="background:var(--night);height:10px"></i>Night</span>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="sources" id="sources"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Circadian markers</h2></div>
+    <ul class="timeline" id="timeline"></ul>
+  </section>
+
+  <details class="card" id="settings-panel">
+    <summary>Settings</summary>
+    <form class="settings" id="settings-form">
+      <div class="field">
+        <label for="uva-angle">UVA rise angle (°)</label>
+        <input id="uva-angle" type="number" step="0.5" min="0" max="60" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label for="uvb-angle">UVB rise angle (°)</label>
+        <input id="uvb-angle" type="number" step="0.5" min="0" max="80" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label for="ozone">Ozone column (DU)</label>
+        <input id="ozone" type="number" step="5" min="150" max="500" inputmode="numeric" placeholder="Auto">
+        <small id="ozone-note">Leave empty for a seasonal estimate.</small>
+      </div>
+      <div class="field">
+        <label for="sky">Sky</label>
+        <select id="sky">
+          <option value="auto">Live clouds</option>
+          <option value="1">Clear</option>
+          <option value="0.89">Scattered clouds</option>
+          <option value="0.73">Broken clouds</option>
+          <option value="0.31">Overcast</option>
+        </select>
+      </div>
+      <div class="field full"><span class="label">Custom location</span></div>
+      <div class="field">
+        <label for="c-lat">Latitude</label>
+        <input id="c-lat" type="text" inputmode="decimal" placeholder="35.17">
+      </div>
+      <div class="field">
+        <label for="c-lon">Longitude</label>
+        <input id="c-lon" type="text" inputmode="decimal" placeholder="33.36">
+      </div>
+      <div class="field">
+        <label for="c-name">Name</label>
+        <input id="c-name" type="text" placeholder="Home">
+      </div>
+      <div class="field">
+        <label for="c-tz">Time zone</label>
+        <select id="c-tz"></select>
+      </div>
+      <button class="primary" type="submit" id="use-custom">Use this location</button>
+      <p class="msg" id="custom-msg"></p>
+    </form>
+  </details>
+
+  <p class="note">UV values come from a clear-sky model based on sun angle and the ozone overhead, both taken from Open-Meteo's UV forecast for the day (ozone is worked out from its clear-sky UV, with a seasonal estimate as fallback), then scaled hour by hour for clouds. Real UV also changes with haze, altitude and reflective surfaces like snow, sand or water. UVA and UVB rise are the moments the sun passes the angles set in Settings.</p>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- City list: name | country | lat | lon | time zone ----------
+  const RAW = `Nicosia|Cyprus|35.1856|33.3823|Asia/Nicosia
+Limassol|Cyprus|34.6786|33.0413|Asia/Nicosia
+Larnaca|Cyprus|34.9003|33.6232|Asia/Nicosia
+Paphos|Cyprus|34.7720|32.4297|Asia/Nicosia
+Belgrade|Serbia|44.7866|20.4489|Europe/Belgrade
+Novi Sad|Serbia|45.2671|19.8335|Europe/Belgrade
+Niš|Serbia|43.3209|21.8958|Europe/Belgrade
+Podgorica|Montenegro|42.4304|19.2594|Europe/Podgorica
+Sarajevo|Bosnia and Herzegovina|43.8563|18.4131|Europe/Sarajevo
+Zagreb|Croatia|45.8150|15.9819|Europe/Zagreb
+Split|Croatia|43.5081|16.4402|Europe/Zagreb
+Dubrovnik|Croatia|42.6507|18.0944|Europe/Zagreb
+Ljubljana|Slovenia|46.0569|14.5058|Europe/Ljubljana
+Skopje|North Macedonia|41.9981|21.4254|Europe/Skopje
+Tirana|Albania|41.3275|19.8187|Europe/Tirane
+Sofia|Bulgaria|42.6977|23.3219|Europe/Sofia
+Varna|Bulgaria|43.2141|27.9147|Europe/Sofia
+Bucharest|Romania|44.4268|26.1025|Europe/Bucharest
+Cluj-Napoca|Romania|46.7712|23.6236|Europe/Bucharest
+Chișinău|Moldova|47.0105|28.8638|Europe/Chisinau
+Budapest|Hungary|47.4979|19.0402|Europe/Budapest
+Vienna|Austria|48.2082|16.3738|Europe/Vienna
+Bratislava|Slovakia|48.1486|17.1077|Europe/Bratislava
+Prague|Czechia|50.0755|14.4378|Europe/Prague
+Warsaw|Poland|52.2297|21.0122|Europe/Warsaw
+Kraków|Poland|50.0647|19.9450|Europe/Warsaw
+Berlin|Germany|52.5200|13.4050|Europe/Berlin
+Munich|Germany|48.1351|11.5820|Europe/Berlin
+Hamburg|Germany|53.5511|9.9937|Europe/Berlin
+Frankfurt|Germany|50.1109|8.6821|Europe/Berlin
+Cologne|Germany|50.9375|6.9603|Europe/Berlin
+Zurich|Switzerland|47.3769|8.5417|Europe/Zurich
+Geneva|Switzerland|46.2044|6.1432|Europe/Zurich
+Paris|France|48.8566|2.3522|Europe/Paris
+Lyon|France|45.7640|4.8357|Europe/Paris
+Marseille|France|43.2965|5.3698|Europe/Paris
+Nice|France|43.7102|7.2620|Europe/Paris
+Brussels|Belgium|50.8503|4.3517|Europe/Brussels
+Amsterdam|Netherlands|52.3676|4.9041|Europe/Amsterdam
+Luxembourg|Luxembourg|49.6116|6.1319|Europe/Luxembourg
+London|United Kingdom|51.5074|-0.1278|Europe/London
+Manchester|United Kingdom|53.4808|-2.2426|Europe/London
+Edinburgh|United Kingdom|55.9533|-3.1883|Europe/London
+Dublin|Ireland|53.3498|-6.2603|Europe/Dublin
+Reykjavík|Iceland|64.1466|-21.9426|Atlantic/Reykjavik
+Oslo|Norway|59.9139|10.7522|Europe/Oslo
+Bergen|Norway|60.3913|5.3221|Europe/Oslo
+Tromsø|Norway|69.6492|18.9553|Europe/Oslo
+Stockholm|Sweden|59.3293|18.0686|Europe/Stockholm
+Gothenburg|Sweden|57.7089|11.9746|Europe/Stockholm
+Copenhagen|Denmark|55.6761|12.5683|Europe/Copenhagen
+Helsinki|Finland|60.1699|24.9384|Europe/Helsinki
+Tallinn|Estonia|59.4370|24.7536|Europe/Tallinn
+Riga|Latvia|56.9496|24.1052|Europe/Riga
+Vilnius|Lithuania|54.6872|25.2797|Europe/Vilnius
+Minsk|Belarus|53.9006|27.5590|Europe/Minsk
+Kyiv|Ukraine|50.4501|30.5234|Europe/Kiev
+Lviv|Ukraine|49.8397|24.0297|Europe/Kiev
+Odesa|Ukraine|46.4825|30.7233|Europe/Kiev
+Moscow|Russia|55.7558|37.6173|Europe/Moscow
+Saint Petersburg|Russia|59.9311|30.3609|Europe/Moscow
+Lisbon|Portugal|38.7223|-9.1393|Europe/Lisbon
+Porto|Portugal|41.1579|-8.6291|Europe/Lisbon
+Madrid|Spain|40.4168|-3.7038|Europe/Madrid
+Barcelona|Spain|41.3851|2.1734|Europe/Madrid
+Valencia|Spain|39.4699|-0.3763|Europe/Madrid
+Seville|Spain|37.3891|-5.9845|Europe/Madrid
+Málaga|Spain|36.7213|-4.4214|Europe/Madrid
+Palma|Spain|39.5696|2.6502|Europe/Madrid
+Las Palmas|Spain|28.1235|-15.4363|Atlantic/Canary
+Rome|Italy|41.9028|12.4964|Europe/Rome
+Milan|Italy|45.4642|9.1900|Europe/Rome
+Naples|Italy|40.8518|14.2681|Europe/Rome
+Florence|Italy|43.7696|11.2558|Europe/Rome
+Venice|Italy|45.4408|12.3155|Europe/Rome
+Palermo|Italy|38.1157|13.3615|Europe/Rome
+Valletta|Malta|35.8989|14.5146|Europe/Malta
+Athens|Greece|37.9838|23.7275|Europe/Athens
+Thessaloniki|Greece|40.6401|22.9444|Europe/Athens
+Heraklion|Greece|35.3387|25.1442|Europe/Athens
+Rhodes|Greece|36.4349|28.2176|Europe/Athens
+Istanbul|Turkey|41.0082|28.9784|Europe/Istanbul
+Ankara|Turkey|39.9334|32.8597|Europe/Istanbul
+Izmir|Turkey|38.4237|27.1428|Europe/Istanbul
+Antalya|Turkey|36.8969|30.7133|Europe/Istanbul
+Tbilisi|Georgia|41.7151|44.8271|Asia/Tbilisi
+Yerevan|Armenia|40.1792|44.4991|Asia/Yerevan
+Baku|Azerbaijan|40.4093|49.8671|Asia/Baku
+Tel Aviv|Israel|32.0853|34.7818|Asia/Jerusalem
+Jerusalem|Israel|31.7683|35.2137|Asia/Jerusalem
+Beirut|Lebanon|33.8938|35.5018|Asia/Beirut
+Amman|Jordan|31.9454|35.9284|Asia/Amman
+Cairo|Egypt|30.0444|31.2357|Africa/Cairo
+Dubai|United Arab Emirates|25.2048|55.2708|Asia/Dubai
+Abu Dhabi|United Arab Emirates|24.4539|54.3773|Asia/Dubai
+Doha|Qatar|25.2854|51.5310|Asia/Qatar
+Riyadh|Saudi Arabia|24.7136|46.6753|Asia/Riyadh
+Tehran|Iran|35.6892|51.3890|Asia/Tehran
+Casablanca|Morocco|33.5731|-7.5898|Africa/Casablanca
+Marrakesh|Morocco|31.6295|-7.9811|Africa/Casablanca
+Tunis|Tunisia|36.8065|10.1815|Africa/Tunis
+Lagos|Nigeria|6.5244|3.3792|Africa/Lagos
+Accra|Ghana|5.6037|-0.1870|Africa/Accra
+Addis Ababa|Ethiopia|8.9806|38.7578|Africa/Addis_Ababa
+Nairobi|Kenya|-1.2921|36.8219|Africa/Nairobi
+Johannesburg|South Africa|-26.2041|28.0473|Africa/Johannesburg
+Cape Town|South Africa|-33.9249|18.4241|Africa/Johannesburg
+Almaty|Kazakhstan|43.2220|76.8512|Asia/Almaty
+Tashkent|Uzbekistan|41.2995|69.2401|Asia/Tashkent
+Karachi|Pakistan|24.8607|67.0011|Asia/Karachi
+Delhi|India|28.6139|77.2090|Asia/Kolkata
+Mumbai|India|19.0760|72.8777|Asia/Kolkata
+Bengaluru|India|12.9716|77.5946|Asia/Kolkata
+Kathmandu|Nepal|27.7172|85.3240|Asia/Kathmandu
+Colombo|Sri Lanka|6.9271|79.8612|Asia/Colombo
+Dhaka|Bangladesh|23.8103|90.4125|Asia/Dhaka
+Bangkok|Thailand|13.7563|100.5018|Asia/Bangkok
+Phuket|Thailand|7.8804|98.3923|Asia/Bangkok
+Hanoi|Vietnam|21.0278|105.8342|Asia/Ho_Chi_Minh
+Ho Chi Minh City|Vietnam|10.8231|106.6297|Asia/Ho_Chi_Minh
+Kuala Lumpur|Malaysia|3.1390|101.6869|Asia/Kuala_Lumpur
+Singapore|Singapore|1.3521|103.8198|Asia/Singapore
+Jakarta|Indonesia|-6.2088|106.8456|Asia/Jakarta
+Denpasar (Bali)|Indonesia|-8.6705|115.2126|Asia/Makassar
+Manila|Philippines|14.5995|120.9842|Asia/Manila
+Hong Kong|China|22.3193|114.1694|Asia/Hong_Kong
+Shanghai|China|31.2304|121.4737|Asia/Shanghai
+Beijing|China|39.9042|116.4074|Asia/Shanghai
+Taipei|Taiwan|25.0330|121.5654|Asia/Taipei
+Seoul|South Korea|37.5665|126.9780|Asia/Seoul
+Tokyo|Japan|35.6762|139.6503|Asia/Tokyo
+Osaka|Japan|34.6937|135.5023|Asia/Tokyo
+Sydney|Australia|-33.8688|151.2093|Australia/Sydney
+Melbourne|Australia|-37.8136|144.9631|Australia/Melbourne
+Brisbane|Australia|-27.4698|153.0251|Australia/Brisbane
+Perth|Australia|-31.9505|115.8605|Australia/Perth
+Auckland|New Zealand|-36.8485|174.7633|Pacific/Auckland
+Honolulu|United States|21.3069|-157.8583|Pacific/Honolulu
+Anchorage|United States|61.2181|-149.9003|America/Anchorage
+Seattle|United States|47.6062|-122.3321|America/Los_Angeles
+San Francisco|United States|37.7749|-122.4194|America/Los_Angeles
+Los Angeles|United States|34.0522|-118.2437|America/Los_Angeles
+San Diego|United States|32.7157|-117.1611|America/Los_Angeles
+Phoenix|United States|33.4484|-112.0740|America/Phoenix
+Denver|United States|39.7392|-104.9903|America/Denver
+Austin|United States|30.2672|-97.7431|America/Chicago
+Dallas|United States|32.7767|-96.7970|America/Chicago
+Houston|United States|29.7604|-95.3698|America/Chicago
+Chicago|United States|41.8781|-87.6298|America/Chicago
+Atlanta|United States|33.7490|-84.3880|America/New_York
+Miami|United States|25.7617|-80.1918|America/New_York
+Washington|United States|38.9072|-77.0369|America/New_York
+New York|United States|40.7128|-74.0060|America/New_York
+Boston|United States|42.3601|-71.0589|America/New_York
+Toronto|Canada|43.6532|-79.3832|America/Toronto
+Montreal|Canada|45.5017|-73.5673|America/Toronto
+Vancouver|Canada|49.2827|-123.1207|America/Vancouver
+Mexico City|Mexico|19.4326|-99.1332|America/Mexico_City
+Cancún|Mexico|21.1619|-86.8515|America/Cancun
+Havana|Cuba|23.1136|-82.3666|America/Havana
+Bogotá|Colombia|4.7110|-74.0721|America/Bogota
+Lima|Peru|-12.0464|-77.0428|America/Lima
+Santiago|Chile|-33.4489|-70.6693|America/Santiago
+Buenos Aires|Argentina|-34.6037|-58.3816|America/Argentina/Buenos_Aires
+São Paulo|Brazil|-23.5505|-46.6333|America/Sao_Paulo
+Rio de Janeiro|Brazil|-22.9068|-43.1729|America/Sao_Paulo`;
+
+  function validTz(tz) {
+    try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return true; } catch (e) { return false; }
+  }
+  const CITIES = RAW.split("\n").map(function (l) {
+    const p = l.split("|");
+    return { name: p[0], country: p[1], lat: +p[2], lon: +p[3], tz: p[4] };
+  }).filter(function (c) { return validTz(c.tz); });
+
+  // ---------- Storage (per-viewer convenience only) ----------
+  const KEY = "sunday.v2";
+  function load() {
+    try {
+      const v2 = JSON.parse(localStorage.getItem(KEY) || "null");
+      if (v2) return v2;
+      const v1 = JSON.parse(localStorage.getItem("sunday.v1") || "null");
+      return v1 ? { place: v1.place } : null; // older settings used a fixed 300 DU; keep only the place
+    } catch (e) { return null; }
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ place: state.place, settings: state.settings })); } catch (e) { /* ignore */ } }
+
+  const DEFAULTS = { uva: 10, uvb: 30, ozone: null, sky: "auto" };
+  const saved = load() || {};
+  const browserTz = (function () { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return ""; } })();
+  const state = {
+    place: (saved.place && isFinite(saved.place.lat) && validTz(saved.place.tz)) ? saved.place
+      : (CITIES.find(function (c) { return c.tz === browserTz; }) || CITIES.find(function (c) { return c.name === "London"; })),
+    settings: Object.assign({}, DEFAULTS, saved.settings || {}),
+    date: null,
+    hoverIdx: null,
+    live: { id: "", ozone: null, cmf: null, err: "", at: null }
+  };
+
+  // ---------- Time zone helpers ----------
+  const dtfCache = {};
+  function partsIn(tz, ms) {
+    let f = dtfCache[tz];
+    if (!f) {
+      f = dtfCache[tz] = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit"
+      });
+    }
+    const o = {};
+    f.formatToParts(new Date(ms)).forEach(function (p) { o[p.type] = p.value; });
+    return { y: +o.year, m: +o.month - 1, d: +o.day, h: (+o.hour) % 24, mi: +o.minute, s: +o.second };
+  }
+  function tzOffsetMin(tz, ms) {
+    const p = partsIn(tz, ms);
+    return Math.round((Date.UTC(p.y, p.m, p.d, p.h, p.mi, p.s) - Math.floor(ms / 1000) * 1000) / 60000);
+  }
+  function localMidnight(tz, y, m, d) {
+    const g = Date.UTC(y, m, d);
+    let t = g - tzOffsetMin(tz, g) * 60000;
+    t = g - tzOffsetMin(tz, t) * 60000;
+    return t;
+  }
+  function todayIn(tz) { const p = partsIn(tz, Date.now()); return { y: p.y, m: p.m, d: p.d }; }
+  function shiftDate(dt, n) { const u = new Date(Date.UTC(dt.y, dt.m, dt.d + n)); return { y: u.getUTCFullYear(), m: u.getUTCMonth(), d: u.getUTCDate() }; }
+  function sameDate(a, b) { return a.y === b.y && a.m === b.m && a.d === b.d; }
+
+  const timeFmtCache = {};
+  function fmtTime(tz, ms) {
+    let f = timeFmtCache[tz];
+    if (!f) f = timeFmtCache[tz] = new Intl.DateTimeFormat(undefined, { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    return f.format(new Date(ms));
+  }
+  function fmtDuration(min) {
+    min = Math.max(0, Math.round(min));
+    const h = Math.floor(min / 60), m = min % 60;
+    return h ? (h + " h " + String(m).padStart(2, "0") + " min") : (m + " min");
+  }
+
+  // ---------- Solar position (NOAA algorithm) ----------
+  const RAD = Math.PI / 180;
+  function solarElevation(ms, lat, lon) {
+    const jd = ms / 86400000 + 2440587.5;
+    const T = (jd - 2451545) / 36525;
+    const L0 = ((280.46646 + T * (36000.76983 + T * 0.0003032)) % 360 + 360) % 360;
+    const M = 357.52911 + T * (35999.05029 - 0.0001537 * T);
+    const e = 0.016708634 - T * (0.000042037 + 0.0000001267 * T);
+    const Mr = M * RAD;
+    const C = Math.sin(Mr) * (1.914602 - T * (0.004817 + 0.000014 * T))
+      + Math.sin(2 * Mr) * (0.019993 - 0.000101 * T) + Math.sin(3 * Mr) * 0.000289;
+    const omega = (125.04 - 1934.136 * T) * RAD;
+    const lambda = (L0 + C - 0.00569 - 0.00478 * Math.sin(omega)) * RAD;
+    const eps0 = 23 + (26 + (21.448 - T * (46.815 + T * (0.00059 - T * 0.001813))) / 60) / 60;
+    const eps = (eps0 + 0.00256 * Math.cos(omega)) * RAD;
+    const decl = Math.asin(Math.sin(eps) * Math.sin(lambda));
+    const y = Math.pow(Math.tan(eps / 2), 2);
+    const L0r = L0 * RAD;
+    const eot = 4 / RAD * (y * Math.sin(2 * L0r) - 2 * e * Math.sin(Mr)
+      + 4 * e * y * Math.sin(Mr) * Math.cos(2 * L0r)
+      - 0.5 * y * y * Math.sin(4 * L0r) - 1.25 * e * e * Math.sin(2 * Mr));
+    const utcMin = ((ms % 86400000) + 86400000) % 86400000 / 60000;
+    const tst = ((utcMin + eot + 4 * lon) % 1440 + 1440) % 1440;
+    const ha = (tst / 4 - 180) * RAD;
+    const latr = lat * RAD;
+    const cz = Math.sin(latr) * Math.sin(decl) + Math.cos(latr) * Math.cos(decl) * Math.cos(ha);
+    return 90 - Math.acos(Math.max(-1, Math.min(1, cz))) / RAD;
+  }
+
+  // Approximate zonal-mean total ozone climatology (DU): latitude rows, values at Jan 15 / Apr 15 / Jul 15 / Oct 15.
+  const OZ = [
+    [-90, 290, 270, 280, 200], [-70, 290, 270, 280, 200], [-60, 300, 300, 310, 285],
+    [-50, 310, 300, 320, 340], [-40, 295, 285, 310, 330], [-30, 275, 270, 285, 300],
+    [-20, 260, 255, 265, 275], [-10, 255, 250, 255, 265], [0, 250, 255, 262, 265],
+    [10, 250, 262, 272, 262], [20, 255, 280, 285, 265], [30, 285, 315, 300, 280],
+    [40, 330, 365, 325, 295], [50, 365, 395, 340, 305], [60, 380, 415, 340, 300],
+    [70, 400, 430, 330, 290], [90, 400, 440, 320, 280]
+  ];
+  function ozoneClim(lat, ms) {
+    const d = new Date(ms);
+    const doy = (ms - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000; // 0..365
+    const anchors = [14, 104, 195, 287]; // mid Jan, Apr, Jul, Oct
+    function atRow(r) {
+      for (let k = 0; k < 4; k++) {
+        const a = anchors[k], b = k < 3 ? anchors[k + 1] : anchors[0] + 365;
+        let x = doy; if (x < anchors[0]) x += 365;
+        if (x >= a && x < b) return r[1 + k] + (r[1 + (k + 1) % 4] - r[1 + k]) * (x - a) / (b - a);
+      }
+      return r[1];
+    }
+    for (let i = 0; i < OZ.length - 1; i++) {
+      if (lat >= OZ[i][0] && lat <= OZ[i + 1][0]) {
+        const f = (lat - OZ[i][0]) / (OZ[i + 1][0] - OZ[i][0]);
+        return atRow(OZ[i]) + (atRow(OZ[i + 1]) - atRow(OZ[i])) * f;
+      }
+    }
+    return 300;
+  }
+
+  // Clear-sky UV index (Madronich approximation), scaled by sky factor.
+  function uvIndex(elev, s) {
+    if (elev <= 0) return 0;
+    const mu = Math.sin(elev * RAD);
+    return 12.5 * Math.pow(mu, 2.42) * Math.pow(s.ozone / 300, -1.23) * s.sky;
+  }
+
+  // ---------- Live data: Open-Meteo (clouds + effective ozone) ----------
+  function dateStr(dt) { return dt.y + "-" + String(dt.m + 1).padStart(2, "0") + "-" + String(dt.d).padStart(2, "0"); }
+  function liveId() {
+    const p = state.place;
+    return p.lat.toFixed(3) + "," + p.lon.toFixed(3) + "," + dateStr(state.date);
+  }
+
+  // Hourly cloud modification factor = all-sky UV / clear-sky UV, linearly interpolated.
+  function cloudFactorAt(cmf, t) {
+    if (t <= cmf[0].t) return cmf[0].f;
+    for (let i = 0; i < cmf.length - 1; i++) {
+      if (t >= cmf[i].t && t < cmf[i + 1].t) {
+        return cmf[i].f + (cmf[i + 1].f - cmf[i].f) * (t - cmf[i].t) / (cmf[i + 1].t - cmf[i].t);
+      }
+    }
+    return cmf[cmf.length - 1].f;
+  }
+
+  // One Open-Meteo request gives both pieces:
+  //  - cloud factor per hour = all-sky UV / clear-sky UV
+  //  - effective ozone, by inverting the clear-sky model against Open-Meteo's clear-sky UV
+  async function fetchOpenMeteo(p, dt, start) {
+    const ds = dateStr(dt);
+    const url = "https://api.open-meteo.com/v1/forecast?latitude=" + p.lat.toFixed(4) + "&longitude=" + p.lon.toFixed(4) +
+      "&hourly=uv_index,uv_index_clear_sky&timezone=" + encodeURIComponent(p.tz) + "&start_date=" + ds + "&end_date=" + ds;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("Open-Meteo returned " + r.status);
+    const j = await r.json();
+    const h = j.hourly || {};
+    if (!h.time || !h.uv_index || !h.uv_index_clear_sky) throw new Error("No hourly UV in response");
+    const pts = [];
+    let wSum = 0, ozSum = 0;
+    for (let i = 0; i < h.time.length; i++) {
+      const hour = parseInt(String(h.time[i]).slice(11, 13), 10);
+      const t = start + hour * 3600000;
+      const clear = h.uv_index_clear_sky[i], all = h.uv_index[i];
+      const f = (clear !== null && all !== null && clear >= 0.3) ? Math.max(0, Math.min(1.15, all / clear)) : null;
+      pts.push({ t: t, f: f });
+      // Ozone inversion: only well-lit hours, weighted toward midday where the model is most reliable.
+      const el = solarElevation(t, p.lat, p.lon);
+      if (clear !== null && clear >= 1 && el > 15) {
+        const base = 12.5 * Math.pow(Math.sin(el * RAD), 2.42); // model UV at 300 DU
+        const oz = 300 * Math.pow(clear / base, -1 / 1.23);
+        if (isFinite(oz)) { ozSum += oz * clear; wSum += clear; }
+      }
+    }
+    const ozone = wSum ? Math.max(180, Math.min(500, ozSum / wSum)) : null;
+    // Fill night hours (no factor) from the nearest daytime hour.
+    const valid = pts.filter(function (q) { return q.f !== null; });
+    const cmf = !valid.length ? pts.map(function (q) { return { t: q.t, f: 1 }; }) : pts.map(function (q) {
+      if (q.f !== null) return q;
+      let best = valid[0];
+      valid.forEach(function (v) { if (Math.abs(v.t - q.t) < Math.abs(best.t - q.t)) best = v; });
+      return { t: q.t, f: best.f };
+    });
+    return { cmf: cmf, ozone: ozone };
+  }
+
+  let liveSeq = 0;
+  async function refreshLive() {
+    const seq = ++liveSeq;
+    const p = state.place, dt = state.date, id = liveId();
+    const start = localMidnight(p.tz, dt.y, dt.m, dt.d);
+    if (state.live.id !== id) {
+      state.live = { id: id, ozone: null, cmf: null, err: "", at: null };
+    }
+    try {
+      const d = await fetchOpenMeteo(p, dt, start);
+      if (seq !== liveSeq) return;
+      state.live.cmf = d.cmf; state.live.ozone = d.ozone; state.live.err = ""; state.live.at = Date.now();
+    } catch (e) {
+      if (seq !== liveSeq) return;
+      state.live.err = (e && e.message) || "Live data unavailable";
+    }
+    renderAll();
+  }
+
+  function crossings(arr, times, level) {
+    let rise = null, set = null;
+    for (let i = 0; i < arr.length - 1; i++) {
+      const a = arr[i] - level, b = arr[i + 1] - level;
+      if (a < 0 && b >= 0 && rise === null) rise = times[i] + (times[i + 1] - times[i]) * (-a / (b - a));
+      if (a >= 0 && b < 0) set = times[i] + (times[i + 1] - times[i]) * (a / (a - b));
+    }
+    return { rise: rise, set: set };
+  }
+
+  function computeDay() {
+    const p = state.place, s = state.settings, dt = state.date;
+    const start = localMidnight(p.tz, dt.y, dt.m, dt.d);
+    const nd = shiftDate(dt, 1);
+    const end = localMidnight(p.tz, nd.y, nd.m, nd.d);
+    const n = Math.round((end - start) / 60000);
+    const L = state.live;
+    const liveOk = L.id === liveId();
+    const ozoneSrc = s.ozone ? "manual" : (liveOk && L.ozone ? "live" : "estimate");
+    const ozone = s.ozone || (liveOk && L.ozone) || ozoneClim(p.lat, start + 43200000);
+    const cmf = (s.sky === "auto" && liveOk && L.cmf) ? L.cmf : null;
+    const fixedSky = s.sky === "auto" ? 1 : +s.sky;
+    const uvs = { ozone: ozone, sky: 1 };
+    const times = new Array(n + 1), elev = new Array(n + 1), uv = new Array(n + 1);
+    let maxI = 0;
+    for (let i = 0; i <= n; i++) {
+      const t = start + i * 60000;
+      times[i] = t;
+      elev[i] = solarElevation(t, p.lat, p.lon);
+      uv[i] = uvIndex(elev[i], uvs) * (cmf ? cloudFactorAt(cmf, t) : fixedSky);
+      if (elev[i] > elev[maxI]) maxI = i;
+    }
+    let peakI = 0;
+    for (let i = 1; i <= n; i++) if (uv[i] > uv[peakI]) peakI = i;
+    const c = function (a) { return crossings(elev, times, a); };
+    const sunr = c(-0.833), civ = c(-6), nau = c(-12), ast = c(-18);
+    const uva = c(s.uva), uvb = c(s.uvb), uv3 = crossings(uv, times, 3);
+    let uv3min = 0;
+    for (let i = 0; i < uv.length; i++) if (uv[i] >= 3) uv3min++;
+    let daylen = 0;
+    for (let i = 0; i < elev.length - 1; i++) if (elev[i] >= -0.833) daylen++;
+    return {
+      start: start, end: end, times: times, ozone: ozone, ozoneAuto: !s.ozone, ozoneSrc: ozoneSrc,
+      clouds: !!cmf, peakT: times[peakI], peakUvLive: uv[peakI], elev: elev, uv: uv,
+      noon: times[maxI], maxElev: elev[maxI], peakUv: uv[peakI],
+      sunr: sunr, civ: civ, nau: nau, ast: ast, uva: uva, uvb: uvb, uv3: uv3,
+      uv3min: uv3min, daylen: daylen
+    };
+  }
+
+  // ---------- UV risk category (WHO scale) ----------
+  function risk(u) {
+    if (u < 2.5) return { name: "Low", c: "var(--uv-low)" };
+    if (u < 5.5) return { name: "Moderate", c: "var(--uv-mod)" };
+    if (u < 7.5) return { name: "High", c: "var(--uv-high)" };
+    if (u < 10.5) return { name: "Very high", c: "var(--uv-vhigh)" };
+    return { name: "Extreme", c: "var(--uv-ext)" };
+  }
+
+  // ---------- Rendering ----------
+  const $ = function (id) { return document.getElementById(id); };
+  let day = null;
+
+  function events(D) {
+    const s = state.settings;
+    const list = [
+      { k: "ast", t: D.ast.rise, name: "Astronomical dawn", note: "The sky starts to lighten.", ang: "−18°", dot: "dark", miss: "Sky never gets fully dark" },
+      { k: "civ", t: D.civ.rise, name: "Civil dawn", note: "Enough light to see outdoors.", ang: "−6°", dot: "dark", miss: "No civil twilight" },
+      { k: "sr", t: D.sunr.rise, name: "Sunrise", note: "Get outside early. Morning light anchors your body clock.", ang: "0°", dot: "sun", miss: "The sun doesn't rise" },
+      { k: "uvar", t: D.uva.rise, name: "UVA rise", note: "Sun passes " + s.uva + "°. UVA light builds.", ang: s.uva + "°", dot: "uva", miss: "Sun stays below " + s.uva + "°" },
+      { k: "uvbr", t: D.uvb.rise, name: "UVB rise", note: "Sun passes " + s.uvb + "°. UVB becomes meaningful.", ang: s.uvb + "°", dot: "uvb", miss: "Sun stays below " + s.uvb + "°, no UVB window" },
+      { k: "noon", t: D.maxElev > -0.833 ? D.noon : null, name: "Solar noon", note: "Highest sun and peak UV.", ang: D.maxElev.toFixed(1) + "°", dot: "sun", miss: "" },
+      { k: "uvbs", t: D.uvb.set, name: "UVB set", note: "Sun drops below " + s.uvb + "°.", ang: s.uvb + "°", dot: "uvb", miss: null },
+      { k: "uvas", t: D.uva.set, name: "UVA set", note: "Sun drops below " + s.uva + "°.", ang: s.uva + "°", dot: "uva", miss: null },
+      { k: "ss", t: D.sunr.set, name: "Sunset", note: "Watch the low, warm light. Start dimming indoor lights.", ang: "0°", dot: "sun", miss: null },
+      { k: "cid", t: D.civ.set, name: "Civil dusk", note: "Outdoor light fades. Keep lights low and warm.", ang: "−6°", dot: "dark", miss: null },
+      { k: "asd", t: D.ast.set, name: "Astronomical dusk", note: "Full darkness.", ang: "−18°", dot: "dark", miss: null }
+    ];
+    // Missing "set" events share the missing note of their "rise" partner; show only one row for them.
+    return list.filter(function (e) { return e.t !== null || (e.miss !== null && e.miss !== ""); });
+  }
+
+  function renderHeader() {
+    const p = state.place;
+    if (document.activeElement !== $("city-search")) $("city-search").value = p.name + (p.country ? ", " + p.country : "");
+    $("coords").textContent = Math.abs(p.lat).toFixed(2) + "°" + (p.lat >= 0 ? "N" : "S") + "  " +
+      Math.abs(p.lon).toFixed(2) + "°" + (p.lon >= 0 ? "E" : "W");
+    const dt = state.date;
+    const label = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })
+      .format(new Date(Date.UTC(dt.y, dt.m, dt.d)));
+    const isToday = sameDate(dt, todayIn(p.tz));
+    $("day-label").innerHTML = "";
+    $("day-label").append(document.createTextNode(label));
+    const sm = document.createElement("small");
+    sm.textContent = isToday ? "Today, local time " + fmtTime(p.tz, Date.now()) : p.tz.replace(/_/g, " ");
+    $("day-label").append(sm);
+    $("go-today").hidden = isToday;
+  }
+
+  function idxAt(ms) { return Math.max(0, Math.min(day.times.length - 1, Math.round((ms - day.start) / 60000))); }
+
+  function renderNow() {
+    const p = state.place, D = day;
+    const now = Date.now();
+    const isToday = now >= D.start && now < D.end;
+    const box = $("now");
+    let html = "";
+    if (isToday) {
+      const i = idxAt(now);
+      const u = D.uv[i], r = risk(u);
+      html += '<div><div class="label">UV index now</div><div class="big">' + u.toFixed(1) +
+        '<span class="risk" style="background:' + r.c + '">' + r.name + '</span></div>' +
+        '<div class="sub">Peak today ' + D.peakUv.toFixed(1) + ' at ' + fmtTime(p.tz, D.peakT) + '</div></div>';
+      html += '<div><div class="label">Sun elevation</div><div class="big">' + D.elev[i].toFixed(1) +
+        '<span class="unit">°</span></div><div class="sub">Max ' + D.maxElev.toFixed(1) + '° at solar noon</div></div>';
+      const next = events(D).filter(function (e) { return e.t !== null && e.t > now; })[0];
+      if (next) {
+        html += '<div class="next"><div><div class="label">Next</div><strong>' + next.name + '</strong></div>' +
+          '<div class="when">' + fmtTime(p.tz, next.t) + ' · in ' + fmtDuration((next.t - now) / 60000) + '</div></div>';
+      } else {
+        html += '<div class="next"><div><div class="label">Next</div><strong>Tomorrow\'s dawn</strong></div><div class="when">Use › to see tomorrow</div></div>';
+      }
+    } else {
+      const r = risk(D.peakUv);
+      html += '<div><div class="label">Peak UV index</div><div class="big">' + D.peakUv.toFixed(1) +
+        '<span class="risk" style="background:' + r.c + '">' + r.name + '</span></div>' +
+        '<div class="sub">At ' + fmtTime(p.tz, D.peakT) + '</div></div>';
+      html += '<div><div class="label">Max sun elevation</div><div class="big">' + D.maxElev.toFixed(1) +
+        '<span class="unit">°</span></div><div class="sub">Day length ' + fmtDuration(D.daylen) + '</div></div>';
+    }
+    box.innerHTML = html;
+  }
+
+  function renderStats() {
+    const D = day, p = state.place;
+    const w = (D.uv3.rise !== null && D.uv3.set !== null)
+      ? fmtTime(p.tz, D.uv3.rise) + "–" + fmtTime(p.tz, D.uv3.set) : "None";
+    const items = [
+      [fmtDuration(D.daylen).replace(" min", "m").replace(" h ", "h "), "Day length"],
+      [D.maxElev.toFixed(1) + "°", "Max elevation"],
+      [D.peakUv.toFixed(1), "Peak UV index"],
+      [w, "UV index ≥ 3"]
+    ];
+    $("stats").innerHTML = items.map(function (it) { return "<div><b>" + it[0] + "</b><span>" + it[1] + "</span></div>"; }).join("");
+  }
+
+  function renderTimeline() {
+    const D = day, p = state.place, now = Date.now();
+    const isToday = now >= D.start && now < D.end;
+    let nextMarked = false;
+    const rows = events(D).map(function (e) {
+      let cls = "";
+      if (e.t === null) cls = "missing";
+      else if (isToday && e.t < now) cls = "past";
+      else if (isToday && !nextMarked) { cls = "next-up"; nextMarked = true; }
+      const time = e.t === null ? "—" : fmtTime(p.tz, e.t);
+      const note = e.t === null ? e.miss : e.note;
+      return '<li class="' + cls + '"><span class="t">' + time + '</span><span class="dot ' + e.dot + '"></span>' +
+        '<div class="ev"><b>' + e.name + '</b><p>' + note + '</p></div><span class="ang">' + e.ang + '</span></li>';
+    });
+    $("timeline").innerHTML = rows.join("");
+  }
+
+  // Chart geometry
+  const W = 640, H = 270, ML = 30, MR = 34, MT = 12, MB = 26;
+  const PW = W - ML - MR, PH = H - MT - MB;
+
+  function renderChart() {
+    const D = day, p = state.place;
+    const span = D.end - D.start;
+    const x = function (t) { return ML + (t - D.start) / span * PW; };
+    const yMax = Math.max(4, Math.ceil(D.peakUv + 0.5));
+    const yU = function (u) { return MT + PH - (u / yMax) * PH; };
+    const yE = function (e) { return MT + PH - (Math.max(0, e) / 90) * PH; };
+    let s = "";
+
+    // Night / twilight shading
+    function shade(level, fill) {
+      let open = null;
+      for (let i = 0; i < D.elev.length; i += 2) {
+        const dark = D.elev[i] < level;
+        if (dark && open === null) open = D.times[i];
+        if ((!dark || i + 2 >= D.elev.length) && open !== null) {
+          const endT = dark ? D.end : D.times[i];
+          s += '<rect x="' + x(open).toFixed(1) + '" y="' + MT + '" width="' + Math.max(0, x(endT) - x(open)).toFixed(1) +
+            '" height="' + PH + '" fill="' + fill + '"/>';
+          open = null;
+        }
+      }
+    }
+    shade(-0.833, "var(--twilight)");
+    shade(-6, "var(--night)");
+
+    // WHO risk bands, faint strip at left edge of plot
+    const bands = [[0, 3, "--uv-low"], [3, 6, "--uv-mod"], [6, 8, "--uv-high"], [8, 11, "--uv-vhigh"], [11, 99, "--uv-ext"]];
+    bands.forEach(function (b) {
+      if (b[0] >= yMax) return;
+      const top = yU(Math.min(b[1], yMax)), bot = yU(b[0]);
+      s += '<rect x="' + (ML - 4) + '" y="' + top.toFixed(1) + '" width="3" height="' + (bot - top).toFixed(1) + '" fill="var(' + b[2] + ')"/>';
+    });
+
+    // Grid + left axis (UV)
+    const stepU = yMax > 8 ? 2 : 1;
+    for (let u = 0; u <= yMax; u += stepU) {
+      s += '<line x1="' + ML + '" x2="' + (ML + PW) + '" y1="' + yU(u).toFixed(1) + '" y2="' + yU(u).toFixed(1) +
+        '" stroke="var(--line)" stroke-width="1"/>';
+      s += '<text x="' + (ML - 8) + '" y="' + (yU(u) + 3.5).toFixed(1) + '" text-anchor="end">' + u + '</text>';
+    }
+    // Right axis (elevation)
+    [0, 30, 60, 90].forEach(function (e) {
+      s += '<text x="' + (ML + PW + 6) + '" y="' + (yE(e) + 3.5).toFixed(1) + '" fill="var(--sun)" style="fill:var(--sun)">' + e + '°</text>';
+    });
+    // Hour ticks
+    for (let h = 0; h <= 24; h += 3) {
+      const t = D.start + h * 3600000;
+      const xx = x(Math.min(t, D.end));
+      s += '<line x1="' + xx.toFixed(1) + '" x2="' + xx.toFixed(1) + '" y1="' + (MT + PH) + '" y2="' + (MT + PH + 4) + '" stroke="var(--muted)"/>';
+      s += '<text x="' + xx.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + String(h % 24).padStart(2, "0") + '</text>';
+    }
+
+    // Marker lines for UVA/UVB windows
+    function vline(t, color, dash, op) {
+      if (t === null) return;
+      s += '<line x1="' + x(t).toFixed(1) + '" x2="' + x(t).toFixed(1) + '" y1="' + MT + '" y2="' + (MT + PH) +
+        '" stroke="' + color + '" stroke-width="1" stroke-dasharray="' + dash + '" opacity="' + op + '"/>';
+    }
+    vline(D.uva.rise, "var(--uv)", "2 3", 0.55); vline(D.uva.set, "var(--uv)", "2 3", 0.55);
+    vline(D.uvb.rise, "var(--uv)", "5 3", 0.9); vline(D.uvb.set, "var(--uv)", "5 3", 0.9);
+
+    // Elevation line
+    let pe = "";
+    for (let i = 0; i < D.elev.length; i += 5) pe += (pe ? "L" : "M") + x(D.times[i]).toFixed(1) + " " + yE(D.elev[i]).toFixed(1);
+    s += '<path d="' + pe + '" fill="none" stroke="var(--sun)" stroke-width="1.5" stroke-opacity="0.85"/>';
+
+    // UV area + line
+    let pu = "";
+    for (let i = 0; i < D.uv.length; i += 3) pu += (pu ? "L" : "M") + x(D.times[i]).toFixed(1) + " " + yU(D.uv[i]).toFixed(1);
+    const last = D.uv.length - 1;
+    pu += "L" + x(D.times[last]).toFixed(1) + " " + yU(D.uv[last]).toFixed(1);
+    s += '<path d="' + pu + "L" + x(D.end).toFixed(1) + " " + yU(0) + "L" + ML + " " + yU(0) + 'Z" fill="var(--uv-fill)" stroke="none"/>';
+    s += '<path d="' + pu + '" fill="none" stroke="var(--uv)" stroke-width="2.25" stroke-linejoin="round"/>';
+
+    // Peak marker
+    if (D.peakUv > 0) {
+      s += '<circle cx="' + x(D.peakT).toFixed(1) + '" cy="' + yU(D.peakUv).toFixed(1) + '" r="3.5" fill="var(--uv)"/>';
+      s += '<text x="' + x(D.peakT).toFixed(1) + '" y="' + (yU(D.peakUv) - 8).toFixed(1) + '" text-anchor="middle" style="fill:var(--fg)">' + D.peakUv.toFixed(1) + '</text>';
+    }
+
+    // Now line
+    const now = Date.now();
+    if (now >= D.start && now < D.end) {
+      const xn = x(now).toFixed(1);
+      s += '<line x1="' + xn + '" x2="' + xn + '" y1="' + MT + '" y2="' + (MT + PH) + '" stroke="var(--fg)" stroke-width="1.25"/>';
+      s += '<circle cx="' + xn + '" cy="' + yU(D.uv[idxAt(now)]).toFixed(1) + '" r="4" fill="var(--surface)" stroke="var(--fg)" stroke-width="1.5"/>';
+    }
+
+    // Scrub cursor
+    s += '<g id="cursor" visibility="hidden"><line id="cur-line" y1="' + MT + '" y2="' + (MT + PH) + '" stroke="var(--uv)" stroke-width="1"/>' +
+      '<circle id="cur-dot" r="4" fill="var(--uv)"/></g>';
+    s += '<rect id="hit" x="' + ML + '" y="' + MT + '" width="' + PW + '" height="' + PH + '" fill="transparent"/>';
+
+    $("chart").innerHTML = s;
+    bindScrub(x, yU);
+    setReadout(null);
+  }
+
+  function setReadout(i) {
+    const D = day, p = state.place, now = Date.now();
+    let label = "";
+    if (i === null) {
+      if (now >= D.start && now < D.end) { i = idxAt(now); label = "Now "; }
+      else { i = idxAt(D.noon); label = "Noon "; }
+    }
+    $("readout").innerHTML = label + "<b>" + fmtTime(p.tz, D.times[i]) + "</b> · UV <b>" + D.uv[i].toFixed(1) +
+      "</b> · <b>" + D.elev[i].toFixed(1) + "°</b>";
+  }
+
+  function bindScrub(x, yU) {
+    const svg = $("chart"), cur = $("cursor"), line = $("cur-line"), dot = $("cur-dot");
+    function at(ev) {
+      const r = svg.getBoundingClientRect();
+      const vx = (ev.clientX - r.left) / r.width * W;
+      const frac = Math.max(0, Math.min(1, (vx - ML) / PW));
+      return idxAt(day.start + frac * (day.end - day.start));
+    }
+    function show(ev) {
+      const i = at(ev);
+      const xx = x(day.times[i]).toFixed(1);
+      line.setAttribute("x1", xx); line.setAttribute("x2", xx);
+      dot.setAttribute("cx", xx); dot.setAttribute("cy", yU(day.uv[i]).toFixed(1));
+      cur.setAttribute("visibility", "visible");
+      setReadout(i);
+    }
+    function hide() { cur.setAttribute("visibility", "hidden"); setReadout(null); }
+    svg.onpointermove = show;
+    svg.onpointerdown = show;
+    svg.onpointerleave = hide;
+    svg.onpointercancel = hide;
+  }
+
+  function renderAll() {
+    day = computeDay();
+    renderHeader();
+    renderNow();
+    renderChart();
+    renderStats();
+    renderTimeline();
+    renderSources();
+    $("ozone-note").textContent = day.ozoneSrc === "manual"
+      ? "Using your value. Clear the field to go back to automatic."
+      : day.ozoneSrc === "live"
+        ? "Auto: " + Math.round(day.ozone) + " DU, from today's Open-Meteo forecast. Type a value to override."
+        : "Auto: about " + Math.round(day.ozone) + " DU, a seasonal estimate until live data loads.";
+  }
+
+  function renderSources() {
+    const D = day, L = state.live, s = state.settings, p = state.place;
+    const chips = [];
+    if (D.ozoneSrc === "live") chips.push('<span class="src live">Ozone <b>' + Math.round(D.ozone) + ' DU</b> · Open-Meteo</span>');
+    else if (D.ozoneSrc === "manual") chips.push('<span class="src">Ozone <b>' + Math.round(D.ozone) + ' DU</b> · your value</span>');
+    else chips.push('<span class="src warn">Ozone <b>~' + Math.round(D.ozone) + ' DU</b> · ' +
+      (L.err ? "seasonal estimate" : "loading…") + '</span>');
+    if (s.sky !== "auto") {
+      const opt = $("sky").selectedOptions[0];
+      chips.push('<span class="src">Sky <b>' + esc(opt ? opt.textContent : "manual") + '</b></span>');
+    } else if (D.clouds) {
+      chips.push('<span class="src live">Clouds · Open-Meteo, updated ' + fmtTime(p.tz, L.at) + '</span>');
+    } else {
+      chips.push('<span class="src warn">Clouds · ' + (L.err ? esc(L.err) + ", showing clear sky" : "loading…") + '</span>');
+    }
+    $("sources").innerHTML = chips.join("");
+  }
+  function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+  // ---------- City search ----------
+  const input = $("city-search"), results = $("city-results");
+  let matches = [], active = -1;
+  function norm(s) { return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
+  function openList(q) {
+    const nq = norm(q.trim());
+    matches = CITIES.filter(function (c) { return !nq || norm(c.name + " " + c.country).indexOf(nq) !== -1; });
+    matches.sort(function (a, b) {
+      const as = norm(a.name).indexOf(nq) === 0 ? 0 : 1, bs = norm(b.name).indexOf(nq) === 0 ? 0 : 1;
+      return as - bs || a.name.localeCompare(b.name);
+    });
+    matches = matches.slice(0, nq ? 12 : 40);
+    active = matches.length ? 0 : -1;
+    geoPending = nq.length >= 2;
+    drawList();
+    results.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    clearTimeout(geoTimer);
+    if (geoPending) geoTimer = setTimeout(function () { geocode(q.trim()); }, 280);
+  }
+
+  // Worldwide search via Open-Meteo geocoding, merged after the built-in list.
+  let geoTimer = null, geoSeq = 0, geoPending = false;
+  async function geocode(q) {
+    const seq = ++geoSeq;
+    try {
+      const r = await fetch("https://geocoding-api.open-meteo.com/v1/search?count=10&language=en&format=json&name=" + encodeURIComponent(q));
+      const j = await r.json();
+      if (seq !== geoSeq || results.hidden) return;
+      const extra = (j.results || []).filter(function (g) { return g.timezone && validTz(g.timezone); }).map(function (g) {
+        return { name: g.name, country: [g.admin1, g.country].filter(Boolean).join(", "), lat: g.latitude, lon: g.longitude, tz: g.timezone };
+      }).filter(function (g) {
+        return !matches.some(function (m) { return Math.abs(m.lat - g.lat) < 0.15 && Math.abs(m.lon - g.lon) < 0.15; });
+      });
+      matches = matches.concat(extra).slice(0, 20);
+      if (active < 0 && matches.length) active = 0;
+    } catch (e) { /* offline: built-in list only */ }
+    if (seq === geoSeq) { geoPending = false; drawList(); }
+  }
+
+  function drawList() {
+    if (!matches.length) {
+      results.innerHTML = geoPending ? '<li class="loading">Searching…</li>'
+        : '<li class="empty">No match. Add it under Settings › Custom location.</li>';
+      return;
+    }
+    results.innerHTML = matches.map(function (c, i) {
+      return '<li role="option" id="opt-' + i + '" data-i="' + i + '" aria-selected="' + (i === active) + '"><span>' +
+        esc(c.name) + '</span><span>' + esc(c.country) + '</span></li>';
+    }).join("") + (geoPending ? '<li class="loading">Searching worldwide…</li>' : "");
+    if (active >= 0) {
+      const el = document.getElementById("opt-" + active);
+      if (el) el.scrollIntoView({ block: "nearest" });
+      input.setAttribute("aria-activedescendant", "opt-" + active);
+    }
+  }
+  function closeList() {
+    results.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  }
+  function choose(c) {
+    state.place = { name: c.name, country: c.country, lat: c.lat, lon: c.lon, tz: c.tz };
+    state.date = todayIn(c.tz);
+    save();
+    closeList();
+    input.blur();
+    renderAll();
+    refreshLive();
+  }
+  input.addEventListener("focus", function () { input.select(); openList(""); });
+  input.addEventListener("input", function () { openList(input.value); });
+  input.addEventListener("keydown", function (e) {
+    if (results.hidden) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); if (matches.length) { active = (active + 1) % matches.length; drawList(); } }
+    else if (e.key === "ArrowUp") { e.preventDefault(); if (matches.length) { active = (active - 1 + matches.length) % matches.length; drawList(); } }
+    else if (e.key === "Enter") { e.preventDefault(); if (active >= 0) choose(matches[active]); }
+    else if (e.key === "Escape") { closeList(); renderHeader(); input.blur(); }
+  });
+  results.addEventListener("pointerdown", function (e) {
+    const li = e.target.closest("li[data-i]");
+    if (li) { e.preventDefault(); choose(matches[+li.dataset.i]); }
+  });
+  input.addEventListener("blur", function () { setTimeout(function () { if (document.activeElement !== input) { closeList(); renderHeader(); } }, 120); });
+
+  // ---------- Date nav ----------
+  $("prev-day").addEventListener("click", function () { state.date = shiftDate(state.date, -1); renderAll(); refreshLive(); });
+  $("next-day").addEventListener("click", function () { state.date = shiftDate(state.date, 1); renderAll(); refreshLive(); });
+  $("go-today").addEventListener("click", function () { state.date = todayIn(state.place.tz); renderAll(); refreshLive(); });
+
+  // ---------- Settings ----------
+  function fillSettings() {
+    const s = state.settings;
+    $("uva-angle").value = s.uva; $("uvb-angle").value = s.uvb; $("ozone").value = s.ozone || "";
+    $("sky").value = String(s.sky);
+    if (!$("sky").value) $("sky").value = "auto";
+    const sel = $("c-tz");
+    let zones = [];
+    try { zones = Intl.supportedValuesOf("timeZone"); } catch (e) { zones = []; }
+    if (!zones.length) zones = Array.from(new Set(CITIES.map(function (c) { return c.tz; }))).sort();
+    if (zones.indexOf(state.place.tz) === -1) zones.push(state.place.tz);
+    sel.innerHTML = zones.map(function (z) { return '<option value="' + z + '">' + z.replace(/_/g, " ") + '</option>'; }).join("");
+    sel.value = state.place.tz;
+  }
+  function readNum(id, lo, hi, fallback) {
+    const v = parseFloat($(id).value);
+    return isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
+  }
+  ["uva-angle", "uvb-angle", "ozone", "sky"].forEach(function (id) {
+    $(id).addEventListener("change", function () {
+      const skyV = $("sky").value;
+      state.settings = {
+        uva: readNum("uva-angle", 0, 60, DEFAULTS.uva),
+        uvb: readNum("uvb-angle", 0, 80, DEFAULTS.uvb),
+        ozone: String($("ozone").value).trim() === "" ? null : readNum("ozone", 150, 500, null),
+        sky: skyV === "auto" ? "auto" : readNum("sky", 0.1, 1, 1)
+      };
+      save();
+      renderAll();
+    });
+  });
+  $("settings-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    const lat = parseFloat(String($("c-lat").value).replace(",", "."));
+    const lon = parseFloat(String($("c-lon").value).replace(",", "."));
+    const tz = $("c-tz").value;
+    const msg = $("custom-msg");
+    if (!isFinite(lat) || lat < -90 || lat > 90) { msg.textContent = "Enter a latitude between −90 and 90."; return; }
+    if (!isFinite(lon) || lon < -180 || lon > 180) { msg.textContent = "Enter a longitude between −180 and 180."; return; }
+    if (!validTz(tz)) { msg.textContent = "Pick a time zone."; return; }
+    msg.textContent = "";
+    choose({ name: ($("c-name").value || "").trim() || "Custom location", country: "", lat: lat, lon: lon, tz: tz });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  // ---------- Boot ----------
+  state.date = todayIn(state.place.tz);
+  fillSettings();
+  renderAll();
+  refreshLive();
+  // Refresh cloud data every 30 minutes while open.
+  setInterval(function () { if (!document.hidden) refreshLive(); }, 30 * 60000);
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && state.live.at && Date.now() - state.live.at > 30 * 60000) refreshLive();
+  });
+  // Keep "now" fresh; roll over to the new day at local midnight if viewing today.
+  let lastToday = todayIn(state.place.tz);
+  setInterval(function () {
+    const t = todayIn(state.place.tz);
+    if (!sameDate(t, lastToday)) {
+      if (sameDate(state.date, lastToday)) state.date = t;
+      lastToday = t;
+      renderAll();
+      refreshLive();
+    } else {
+      renderHeader(); renderNow(); renderTimeline();
+      if (!$("cursor") || $("cursor").getAttribute("visibility") === "hidden") renderChart();
+    }
+  }, 60000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "Sun Day",
+  "short_name": "Sun Day",
+  "description": "Circadian sun markers and a full-day UV index curve for any city.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0D1220",
+  "theme_color": "#0D1220",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
